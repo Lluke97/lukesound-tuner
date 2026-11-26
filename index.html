@@ -273,7 +273,7 @@
   .dial-wrap svg{overflow:visible; display:block; width:100%; height:auto;}
   .needle-grp{
     transform-origin:160px 168px;
-    transition:transform .09s cubic-bezier(.3,.6,.3,1);
+    transition:transform .12s cubic-bezier(.3,.6,.3,1);
   }
   .tick-label{
     font-family:'JetBrains Mono', monospace;
@@ -915,7 +915,11 @@
   // crossed the bar, so it looked like the mic wasn't working. These still
   // reject near-silence/pure noise but respond to a normal pluck.
   const SILENCE_RMS = 0.0015;
-  const CLARITY_THRESHOLD = 0.32;
+  // Raised a bit from the previous pass (0.32): that let through enough
+  // ambiguous/noisy frames that the needle jittered between readings. This
+  // is still looser than the original 0.45, combined with the outlier
+  // rejection and needle easing below for a steady but still-responsive read.
+  const CLARITY_THRESHOLD = 0.40;
 
   function autoCorrelate(buf, sampleRate){
     const SIZE = buf.length;
@@ -997,9 +1001,17 @@
     return {target: best, correctedFreq: bestFreq};
   }
 
-  const HISTORY_SIZE = 6;
+  const HISTORY_SIZE = 8;
   let freqHistory = [];
   let silenceCount = 0;
+
+  // Needle smoothing: an eased value that chases the raw cents reading
+  // instead of jumping straight to it every ~60ms frame. Snaps instantly
+  // when the matched note/string changes so switching strings still feels
+  // immediate — only steady-state jitter gets smoothed out.
+  const CENTS_SMOOTHING = 0.22;
+  let displayCents = 0;
+  let lastTargetKey = null;
 
   function medianOf(arr){
     const sorted = [...arr].sort((a, b) => a - b);
@@ -1046,6 +1058,8 @@
       statusPillEl.className = "status-pill";
       if (silenceCount > 4){
         freqHistory = [];
+        lastTargetKey = null;
+        displayCents = 0;
         resetDisplay();
       }
       return;
@@ -1055,7 +1069,20 @@
     const match = nearestStringTarget(detected.freq);
     const freq = match ? match.correctedFreq : detected.freq;
 
-    freqHistory.push(freq);
+    // Reject a single wild outlier frame (e.g. a stray octave slip) instead
+    // of letting it straight into the averaging window — this is a big part
+    // of what made the needle flail around.
+    if (freqHistory.length >= 3){
+      const runningMedian = medianOf(freqHistory);
+      const diffCents = Math.abs(1200 * Math.log2(freq / runningMedian));
+      if (diffCents > 150) {
+        // ignore this one frame; keep using the existing history
+      } else {
+        freqHistory.push(freq);
+      }
+    } else {
+      freqHistory.push(freq);
+    }
     if (freqHistory.length > HISTORY_SIZE) freqHistory.shift();
     const smoothedFreq = medianOf(freqHistory);
 
@@ -1073,20 +1100,32 @@
     }
 
     cents = Math.max(-50, Math.min(50, cents));
-    centsLabelEl.textContent = (cents > 0 ? "+" : "") + cents + " cents";
 
-    const angle = (cents / 50) * 90; // -90deg..+90deg across the semicircle
+    // Ease the needle toward the new reading rather than snapping to it,
+    // unless we just switched to a different note/string (then snap so it
+    // still feels responsive when you move to a new string).
+    const targetKey = match ? match.target.name : info.name + info.octave;
+    if (targetKey !== lastTargetKey){
+      displayCents = cents;
+      lastTargetKey = targetKey;
+    } else {
+      displayCents += (cents - displayCents) * CENTS_SMOOTHING;
+    }
+
+    centsLabelEl.textContent = (Math.round(displayCents) > 0 ? "+" : "") + Math.round(displayCents) + " cents";
+
+    const angle = (displayCents / 50) * 90; // -90deg..+90deg across the semicircle
     needleEl.setAttribute("transform", "rotate(" + angle + ")");
 
-    const inTune = Math.abs(cents) <= 5;
-    flatArrowEl.classList.toggle("lit", cents < -5);
-    sharpArrowEl.classList.toggle("lit", cents > 5);
+    const inTune = Math.abs(displayCents) <= 5;
+    flatArrowEl.classList.toggle("lit", displayCents < -5);
+    sharpArrowEl.classList.toggle("lit", displayCents > 5);
 
     if (inTune){
       noteNameEl.className = "note-name good";
       statusPillEl.textContent = "✅ 튜닝 완료";
       statusPillEl.className = "status-pill good";
-    } else if (cents < 0){
+    } else if (displayCents < 0){
       noteNameEl.className = "note-name off";
       statusPillEl.textContent = "조금 더 올려주세요";
       statusPillEl.className = "status-pill low";
