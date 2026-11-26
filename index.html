@@ -858,6 +858,10 @@
       mode = tab.dataset.mode;
       tuningChipRow.classList.toggle("hidden", !SIX_STRING_MODES.includes(mode));
       manualTarget = null; // string set changed, drop any pin
+      confirmedTarget = null;
+      pendingTargetKey = null;
+      pendingTargetCount = 0;
+      rawPitchHistory = [];
       renderStrings();
     });
   });
@@ -868,6 +872,10 @@
       chip.classList.add("active");
       tuningVariant = chip.dataset.tuning;
       manualTarget = null; // tuning changed, drop any pin
+      confirmedTarget = null;
+      pendingTargetKey = null;
+      pendingTargetCount = 0;
+      rawPitchHistory = [];
       renderStrings();
     });
   });
@@ -899,6 +907,10 @@
         } else {
           manualTarget = s;
         }
+        confirmedTarget = null;
+        pendingTargetKey = null;
+        pendingTargetCount = 0;
+        rawPitchHistory = [];
         renderStrings();
       });
       stringsRowEl.appendChild(div);
@@ -924,8 +936,15 @@
   // little away from the instrument almost instantly. The outlier rejection
   // and needle easing below are what keep this from being jittery at this
   // sensitivity — without them, this level would make the needle flail.
-  const SILENCE_RMS = 0.00035;
-  const CLARITY_THRESHOLD = 0.20;
+  const SILENCE_RMS = 0.00025;
+  // Clarity gates PITCH CONFIDENCE, not loudness — a quiet-but-clean pluck
+  // still passes. Pushing this too low (to chase "sensitivity") was the
+  // actual cause of the needle flailing between strings: it let through
+  // ambiguous/noisy readings whose guessed pitch jumps around take by
+  // frame, so the auto string-match kept flipping. Keeping SILENCE_RMS low
+  // (quiet sounds trigger detection) while keeping this reasonably strict
+  // (bad pitch guesses get thrown out) is what actually gets both.
+  const CLARITY_THRESHOLD = 0.32;
 
   function autoCorrelate(buf, sampleRate){
     const SIZE = buf.length;
@@ -1011,6 +1030,21 @@
   let freqHistory = [];
   let silenceCount = 0;
 
+  // The auto string-match used to be decided from the raw, single-frame
+  // detected pitch — so one noisy/octave-confused frame could instantly
+  // flip which string the needle was being measured against, and because
+  // a target change snaps the needle, that looked like the needle
+  // "flailing" between strings. Feed the match decision a short median of
+  // recent raw pitches instead, and only let it change which string is
+  // considered a match after it's been the best candidate for a few
+  // frames in a row (debounce) — that's what actually stops the flailing.
+  const RAW_PITCH_HISTORY_SIZE = 5;
+  let rawPitchHistory = [];
+  let confirmedTarget = null;
+  let pendingTargetKey = null;
+  let pendingTargetCount = 0;
+  const TARGET_CONFIRM_FRAMES = 3;
+
   // Needle smoothing: an eased value that chases the raw cents reading
   // instead of jumping straight to it every ~60ms frame. Snaps instantly
   // when the matched note/string changes so switching strings still feels
@@ -1067,6 +1101,10 @@
       statusPillEl.className = "status-pill";
       if (silenceCount > 4){
         freqHistory = [];
+        rawPitchHistory = [];
+        confirmedTarget = null;
+        pendingTargetKey = null;
+        pendingTargetCount = 0;
         lastTargetKey = null;
         displayCents = 0;
         resetDisplay();
@@ -1075,7 +1113,45 @@
     }
     silenceCount = 0;
 
-    const match = nearestStringTarget(detected.freq);
+    // Decide WHICH STRING is the match from a short median of recent raw
+    // pitches, and only let that decision change after it's won several
+    // frames in a row — this is the actual fix for the needle flailing
+    // between strings. The per-frame octave-correction (below) still uses
+    // this frame's own pitch, just measured against a stable target.
+    let activeTargetString = null;
+    if (manualTarget){
+      activeTargetString = manualTarget;
+    } else if (mode !== "chromatic"){
+      rawPitchHistory.push(detected.freq);
+      if (rawPitchHistory.length > RAW_PITCH_HISTORY_SIZE) rawPitchHistory.shift();
+      const stableRawFreq = medianOf(rawPitchHistory);
+      const candidate = nearestStringTarget(stableRawFreq);
+      const candidateKey = candidate ? candidate.target.name : null;
+
+      if (candidateKey === pendingTargetKey){
+        pendingTargetCount++;
+      } else {
+        pendingTargetKey = candidateKey;
+        pendingTargetCount = 1;
+      }
+      if (pendingTargetCount >= TARGET_CONFIRM_FRAMES){
+        confirmedTarget = candidate ? candidate.target : null;
+      }
+      activeTargetString = confirmedTarget;
+    }
+
+    let match = null;
+    if (activeTargetString){
+      const candidates = [detected.freq, detected.freq * 2, detected.freq / 2,
+        detected.freq * 3, detected.freq / 3, detected.freq * 4, detected.freq / 4];
+      let bestFreq = detected.freq, bestCents = Infinity;
+      candidates.forEach(f => {
+        if (f <= 0) return;
+        const cents = Math.abs(1200 * Math.log2(f / activeTargetString.freq));
+        if (cents < bestCents){ bestCents = cents; bestFreq = f; }
+      });
+      match = {target: activeTargetString, correctedFreq: bestFreq};
+    }
     const freq = match ? match.correctedFreq : detected.freq;
 
     // Reject a single wild outlier frame (e.g. a stray octave slip) instead
@@ -1199,6 +1275,10 @@
 
     analysisBuf = new Float32Array(analyser.fftSize);
     freqHistory = [];
+    rawPitchHistory = [];
+    confirmedTarget = null;
+    pendingTargetKey = null;
+    pendingTargetCount = 0;
     silenceCount = 0;
     lastAnalysisTime = 0;
 
@@ -1225,6 +1305,10 @@
     statusPillEl.textContent = "대기 중";
     statusPillEl.className = "status-pill";
     freqHistory = [];
+    rawPitchHistory = [];
+    confirmedTarget = null;
+    pendingTargetKey = null;
+    pendingTargetCount = 0;
     silenceCount = 0;
     resetDisplay();
     resetLevelMeter();
