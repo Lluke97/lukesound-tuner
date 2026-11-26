@@ -4,7 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0b0d12">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tuner">
+<meta name="format-detection" content="telephone=no">
 <title>Lukesound Tuner</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="icon" href="/icons/icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
@@ -26,21 +35,37 @@
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{height:100%;}
+  html{-webkit-text-size-adjust:100%; text-size-adjust:100%;}
   body{
     margin:0;
     min-height:100vh;
+    min-height:100dvh;
     background:
       radial-gradient(1200px 600px at 50% -10%, #1a2130 0%, transparent 60%),
       radial-gradient(800px 500px at 90% 110%, #13201c 0%, transparent 55%),
       var(--bg-0);
     color:var(--text);
     font-family:'Manrope', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing:antialiased;
     display:flex;
     flex-direction:column;
     align-items:center;
     padding:max(18px, env(safe-area-inset-top)) 16px calc(28px + env(safe-area-inset-bottom));
     overflow-x:hidden;
+    overscroll-behavior-y:contain;
     user-select:none;
+    touch-action:manipulation;
+  }
+  button, .icon-btn, .fab, .chip, .seg-item, .string-btn, .toggle{
+    touch-action:manipulation;
+  }
+  @media (max-width:360px){
+    .note-name{font-size:52px;}
+    .brand-text h1{font-size:14.5px;}
+    .card{padding:18px 14px 16px;}
+  }
+  @media (min-width:480px){
+    body{padding-top:36px;}
   }
 
   /* ---------- Header ---------- */
@@ -620,6 +645,13 @@
     </div>
     <div class="toggle on" id="vibrateToggle"><div class="knob"></div></div>
   </div>
+  <div class="sheet-row">
+    <div>
+      <label>화면 꺼짐 방지</label>
+      <span class="hint-text">튜닝 중 화면이 자동으로 꺼지지 않게 함 (지원 기기만)</span>
+    </div>
+    <div class="toggle" id="wakeLockToggle"><div class="knob"></div></div>
+  </div>
   <button class="sheet-close" id="sheetClose">닫기</button>
 </div>
 
@@ -687,7 +719,16 @@
   const sheetBackdrop = document.getElementById("sheetBackdrop");
   const sheetClose = document.getElementById("sheetClose");
   const vibrateToggle = document.getElementById("vibrateToggle");
+  const wakeLockToggle = document.getElementById("wakeLockToggle");
   const ticksG = document.getElementById("ticks");
+
+  // ---- device-adaptive performance ----
+  // Low-core-count / unknown devices get a smaller analysis window and a
+  // slightly slower update rate so the pitch loop doesn't compete with the
+  // UI thread on older phones; capable devices get the sharper settings.
+  const LOW_POWER = (navigator.hardwareConcurrency || 4) <= 2;
+  const FFT_SIZE = LOW_POWER ? 2048 : 4096;
+  const ANALYSIS_INTERVAL_MS = LOW_POWER ? 90 : 60;
 
   // ---- draw tick marks on the arc ----
   (function drawTicks(){
@@ -976,6 +1017,19 @@
     errorBox.textContent = "";
   }
 
+  let analysisBuf = null;
+  let pausedForVisibility = false;
+
+  function analysisLoop(ts){
+    rafId = requestAnimationFrame(analysisLoop);
+    if (ts - lastAnalysisTime < ANALYSIS_INTERVAL_MS) return;
+    lastAnalysisTime = ts;
+    analyser.getFloatTimeDomainData(analysisBuf);
+    const detected = autoCorrelate(analysisBuf, audioCtx.sampleRate);
+    updateUI(detected);
+  }
+  let lastAnalysisTime = 0;
+
   async function startListening(){
     clearError();
     try {
@@ -994,30 +1048,22 @@
 
     const source = audioCtx.createMediaStreamSource(mediaStream);
     analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 4096;
+    analyser.fftSize = FFT_SIZE; // smaller window on low-power devices, see LOW_POWER above
     source.connect(analyser);
 
-    const buf = new Float32Array(analyser.fftSize);
+    analysisBuf = new Float32Array(analyser.fftSize);
     freqHistory = [];
     silenceCount = 0;
+    lastAnalysisTime = 0;
 
-    let lastAnalysisTime = 0;
-    const ANALYSIS_INTERVAL_MS = 60;
-
-    function loop(ts){
-      rafId = requestAnimationFrame(loop);
-      if (ts - lastAnalysisTime < ANALYSIS_INTERVAL_MS) return;
-      lastAnalysisTime = ts;
-      analyser.getFloatTimeDomainData(buf);
-      const detected = autoCorrelate(buf, audioCtx.sampleRate);
-      updateUI(detected);
-    }
-    rafId = requestAnimationFrame(loop);
+    rafId = requestAnimationFrame(analysisLoop);
 
     listening = true;
     fabIcon.textContent = "⏹";
     fabLabel.textContent = "탭해서 정지";
     startBtn.classList.add("listening");
+
+    requestWakeLock();
   }
 
   function stopListening(){
@@ -1025,6 +1071,7 @@
     if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
     if (audioCtx) audioCtx.close();
     listening = false;
+    pausedForVisibility = false;
     fabIcon.textContent = "🎙️";
     fabLabel.textContent = "탭해서 시작";
     startBtn.classList.remove("listening");
@@ -1033,11 +1080,56 @@
     freqHistory = [];
     silenceCount = 0;
     resetDisplay();
+    releaseWakeLock();
   }
 
   startBtn.addEventListener("click", () => {
     if (!listening) startListening();
     else stopListening();
+  });
+
+  // ---- Wake Lock (keep screen on while tuning) ----
+  let wakeLock = null;
+  let wakeLockOn = false;
+
+  async function requestWakeLock(){
+    if (!wakeLockOn || !listening || !("wakeLock" in navigator)) return;
+    try {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    } catch (e){ /* denied or unsupported — tuner still works, screen may sleep */ }
+  }
+  function releaseWakeLock(){
+    if (wakeLock){ wakeLock.release().catch(()=>{}); wakeLock = null; }
+  }
+
+  wakeLockToggle.addEventListener("click", () => {
+    wakeLockOn = !wakeLockOn;
+    wakeLockToggle.classList.toggle("on", wakeLockOn);
+    if (wakeLockOn) requestWakeLock();
+    else releaseWakeLock();
+  });
+
+  // ---- Pause audio processing when the tab/app is backgrounded ----
+  // Saves battery/CPU on phones and avoids the mic silently running while
+  // the screen is off; resumes automatically when the user comes back,
+  // and the wake lock (which the browser drops on hide) is re-acquired too.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden){
+      if (listening && audioCtx && audioCtx.state === "running"){
+        audioCtx.suspend().catch(()=>{});
+        if (rafId) cancelAnimationFrame(rafId);
+        pausedForVisibility = true;
+      }
+    } else {
+      if (pausedForVisibility && audioCtx){
+        audioCtx.resume().catch(()=>{});
+        lastAnalysisTime = 0;
+        rafId = requestAnimationFrame(analysisLoop);
+        pausedForVisibility = false;
+        requestWakeLock();
+      }
+    }
   });
 
 })();
