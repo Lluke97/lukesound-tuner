@@ -1,6 +1,6 @@
 {
-  "name": "Lukesound Tuner",
-  "short_name": "Tuner",
+  "name": "LS Tuner",
+  "short_name": "LS Tuner",
   "description": "기타 / 베이스 / 일렉기타 / 크로매틱 튜너",
   "start_url": "/",
   "scope": "/",

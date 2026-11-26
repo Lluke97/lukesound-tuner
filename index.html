@@ -7,9 +7,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Tuner">
+<meta name="apple-mobile-web-app-title" content="LS Tuner">
 <meta name="format-detection" content="telephone=no">
-<title>Lukesound Tuner</title>
+<title>LS Tuner</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
 <link rel="icon" href="/icons/icon-192.png" sizes="192x192">
@@ -39,7 +39,6 @@
   body{
     margin:0;
     min-height:100vh;
-    min-height:100dvh;
     background:
       radial-gradient(1200px 600px at 50% -10%, #1a2130 0%, transparent 60%),
       radial-gradient(800px 500px at 90% 110%, #13201c 0%, transparent 55%),
@@ -50,9 +49,17 @@
     display:flex;
     flex-direction:column;
     align-items:center;
-    padding:max(18px, env(safe-area-inset-top)) 16px calc(28px + env(safe-area-inset-bottom));
+    /* Generous, explicit safe-area padding: standalone/home-screen mode on
+       iOS (status-bar-style: black-translucent) draws the page under the
+       status bar and home indicator, so this has to clear both — a bare
+       max(18px, env(...)) left the header hugging the status bar. */
+    padding-top:calc(env(safe-area-inset-top) + 18px);
+    padding-left:16px;
+    padding-right:16px;
+    padding-bottom:calc(env(safe-area-inset-bottom) + 40px);
     overflow-x:hidden;
     overscroll-behavior-y:contain;
+    -webkit-overflow-scrolling:touch;
     user-select:none;
     touch-action:manipulation;
   }
@@ -75,7 +82,7 @@
     display:flex;
     align-items:center;
     justify-content:space-between;
-    margin-bottom:18px;
+    margin-bottom:14px;
   }
   .brand{
     display:flex;
@@ -161,7 +168,7 @@
     gap:8px;
     overflow-x:auto;
     padding-bottom:2px;
-    margin-bottom:16px;
+    margin-bottom:12px;
     scrollbar-width:none;
   }
   .chip-row::-webkit-scrollbar{display:none;}
@@ -191,7 +198,7 @@
     background:linear-gradient(180deg, var(--panel) 0%, var(--bg-1) 100%);
     border:1px solid var(--line);
     border-radius:28px;
-    padding:22px 20px 20px;
+    padding:18px 20px 18px;
     box-shadow:0 20px 50px rgba(0,0,0,.45);
     position:relative;
     overflow:hidden;
@@ -227,6 +234,34 @@
   }
   .status-pill.good{background:rgba(47,232,143,.15); color:var(--accent);}
   .status-pill.low, .status-pill.high{background:rgba(255,176,32,.14); color:var(--warn);}
+
+  /* input level meter — lets you SEE the mic is picking up sound even
+     before a clean pitch locks in, so it's obvious the mic is working */
+  .level-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    max-width:220px;
+    margin:0 auto 10px;
+  }
+  .level-track{
+    flex:1;
+    height:5px;
+    border-radius:999px;
+    background:var(--panel-2);
+    overflow:hidden;
+  }
+  .level-fill{
+    height:100%;
+    width:0%;
+    border-radius:999px;
+    background:linear-gradient(90deg, #4a5568, var(--accent));
+    transition:width .08s linear;
+  }
+  .level-icon{
+    font-size:11px;
+    opacity:.5;
+  }
 
   /* ---------- Dial ---------- */
   .dial-wrap{
@@ -320,7 +355,7 @@
     display:grid;
     grid-template-columns:repeat(6,1fr);
     gap:8px;
-    margin:20px 0 20px;
+    margin:14px 0 16px;
   }
   .strings.bass{grid-template-columns:repeat(4,1fr);}
   .string-btn{
@@ -344,10 +379,28 @@
     margin-top:2px;
     letter-spacing:.3px;
   }
+  .string-btn{cursor:pointer;}
   .string-btn.target{
     border-color:var(--accent);
     background:rgba(47,232,143,.08);
     box-shadow:0 0 0 1px rgba(47,232,143,.25);
+  }
+  /* manually pinned string: stays marked even in silence, and overrides
+     auto nearest-string matching so only this string is listened for */
+  .string-btn.pinned{
+    border-color:#5b9dff;
+    box-shadow:0 0 0 1px rgba(91,157,255,.35);
+  }
+  .string-btn.pinned::before{
+    content:"📌";
+    position:absolute;
+    top:-7px; left:-7px;
+    font-size:11px;
+    line-height:1;
+  }
+  .string-btn.pinned.in-tune{
+    background:linear-gradient(160deg, var(--accent), var(--accent-dim));
+    border-color:transparent;
   }
   .string-btn.in-tune{
     background:linear-gradient(160deg, var(--accent), var(--accent-dim));
@@ -536,7 +589,7 @@
   <div class="brand">
     <div class="brand-icon">🎸</div>
     <div class="brand-text">
-      <h1>Lukesound Tuner</h1>
+      <h1>LS Tuner</h1>
       <p>기타 · 베이스 · 일렉기타</p>
     </div>
   </div>
@@ -565,6 +618,11 @@
 
   <div class="status-row">
     <div class="status-pill" id="statusPill">대기 중</div>
+  </div>
+
+  <div class="level-row" id="levelRow" style="visibility:hidden;">
+    <span class="level-icon">🎤</span>
+    <div class="level-track"><div class="level-fill" id="levelFill"></div></div>
   </div>
 
   <div class="dial-wrap">
@@ -622,7 +680,8 @@
 
 <div class="hint">
   악기를 마이크 가까이에 대고 한 줄씩 튕겨주세요.<br>
-  바늘이 가운데서 초록색으로 멈추면 튜닝 완료예요.
+  바늘이 가운데서 초록색으로 멈추면 튜닝 완료예요.<br>
+  줄을 탭하면 📌 그 줄만 고정해서 측정해요 — 다시 탭하면 자동 인식으로 돌아가요.
 </div>
 
 <div class="sheet-backdrop" id="sheetBackdrop"></div>
@@ -694,6 +753,9 @@
   let wasInTune = false;
   let audioCtx, analyser, mediaStream, rafId;
   let listening = false;
+  // When set, only this one string is matched against (tap a string to pin
+  // it, tap again to go back to auto nearest-string detection).
+  let manualTarget = null;
 
   // ---- DOM ----
   const noteNameEl = document.getElementById("noteName");
@@ -721,6 +783,16 @@
   const vibrateToggle = document.getElementById("vibrateToggle");
   const wakeLockToggle = document.getElementById("wakeLockToggle");
   const ticksG = document.getElementById("ticks");
+  const levelRow = document.getElementById("levelRow");
+  const levelFill = document.getElementById("levelFill");
+
+  // Visual input-level meter so it's obvious the mic is actually picking up
+  // sound, independent of whether a clean pitch has locked in yet.
+  const LEVEL_METER_MAX_RMS = 0.12; // rms that fills the bar to 100%
+  function updateLevelMeter(rms){
+    const pct = Math.max(0, Math.min(100, (rms / LEVEL_METER_MAX_RMS) * 100));
+    levelFill.style.width = pct + "%";
+  }
 
   // ---- device-adaptive performance ----
   // Low-core-count / unknown devices get a smaller analysis window and a
@@ -776,6 +848,7 @@
       setHighlight(idx);
       mode = tab.dataset.mode;
       tuningChipRow.classList.toggle("hidden", !SIX_STRING_MODES.includes(mode));
+      manualTarget = null; // string set changed, drop any pin
       renderStrings();
     });
   });
@@ -785,6 +858,7 @@
       document.querySelectorAll(".chip").forEach(c => c.classList.remove("active"));
       chip.classList.add("active");
       tuningVariant = chip.dataset.tuning;
+      manualTarget = null; // tuning changed, drop any pin
       renderStrings();
     });
   });
@@ -806,10 +880,18 @@
     stringsRowEl.innerHTML = "";
     strings.forEach(s => {
       const div = document.createElement("div");
-      div.className = "string-btn";
+      div.className = "string-btn" + (manualTarget && manualTarget.name === s.name ? " pinned" : "");
       div.dataset.name = s.name;
       const letter = s.name.slice(0, -1);
       div.innerHTML = letter + '<span class="octave">' + s.name + '</span>';
+      div.addEventListener("click", () => {
+        if (manualTarget && manualTarget.name === s.name){
+          manualTarget = null; // tap the pinned string again: back to auto
+        } else {
+          manualTarget = s;
+        }
+        renderStrings();
+      });
       stringsRowEl.appendChild(div);
     });
   }
@@ -828,15 +910,19 @@
   // ---- Pitch detection ----
   const MIN_DETECT_FREQ = 25;
   const MAX_DETECT_FREQ = 500;
-  const SILENCE_RMS = 0.004;
-  const CLARITY_THRESHOLD = 0.45;
+  // Lowered from the first pass: 0.004/0.45 made the app feel "dead" for a
+  // normal phone mic a little distance from the instrument — it rarely
+  // crossed the bar, so it looked like the mic wasn't working. These still
+  // reject near-silence/pure noise but respond to a normal pluck.
+  const SILENCE_RMS = 0.0015;
+  const CLARITY_THRESHOLD = 0.32;
 
   function autoCorrelate(buf, sampleRate){
     const SIZE = buf.length;
     let rms = 0;
     for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / SIZE);
-    if (rms < SILENCE_RMS) return {freq: -1, clarity: 0};
+    if (rms < SILENCE_RMS) return {freq: -1, clarity: 0, rms};
 
     const windowed = new Float32Array(SIZE);
     for (let i = 0; i < SIZE; i++){
@@ -846,11 +932,11 @@
 
     const maxLag = Math.min(SIZE - 2, Math.floor(sampleRate / MIN_DETECT_FREQ));
     const minLag = Math.max(2, Math.floor(sampleRate / MAX_DETECT_FREQ));
-    if (maxLag <= minLag + 2) return {freq: -1, clarity: 0};
+    if (maxLag <= minLag + 2) return {freq: -1, clarity: 0, rms};
 
     let c0 = 0;
     for (let i = 0; i < SIZE; i++) c0 += windowed[i] * windowed[i];
-    if (c0 <= 0) return {freq: -1, clarity: 0};
+    if (c0 <= 0) return {freq: -1, clarity: 0, rms};
 
     const c = new Float32Array(maxLag + 1);
     for (let lag = minLag; lag <= maxLag; lag++){
@@ -872,7 +958,7 @@
         if (c[lag] > bestVal){ bestVal = c[lag]; bestLag = lag; }
       }
     }
-    if (bestLag <= minLag) return {freq: -1, clarity: 0};
+    if (bestLag <= minLag) return {freq: -1, clarity: 0, rms};
 
     const x1 = c[bestLag - 1] || 0, x2 = c[bestLag], x3 = c[bestLag + 1] || 0;
     const denom = (x1 - 2 * x2 + x3);
@@ -884,12 +970,12 @@
     const meanZeroEnergy = c0 / SIZE;
     const clarity = meanZeroEnergy > 0 ? meanLagEnergy / meanZeroEnergy : 0;
 
-    return {freq: sampleRate / refinedLag, clarity};
+    return {freq: sampleRate / refinedLag, clarity, rms};
   }
 
   function nearestStringTarget(freq){
     if (mode === "chromatic" || !freq) return null;
-    const strings = currentStrings();
+    const strings = manualTarget ? [manualTarget] : currentStrings();
     const candidates = [freq, freq * 2, freq / 2, freq * 3, freq / 3, freq * 4, freq / 4];
     let best = null, bestFreq = freq, bestCents = Infinity;
     strings.forEach(s => {
@@ -903,7 +989,11 @@
         }
       });
     });
-    if (!best || bestCents > 600) return null;
+    // A manually pinned string is trusted over a wider range (up to a full
+    // octave) since the user explicitly chose it; auto-matching stays
+    // tighter so it doesn't latch onto the wrong neighboring string.
+    const tolerance = manualTarget ? 1200 : 600;
+    if (!best || bestCents > tolerance) return null;
     return {target: best, correctedFreq: bestFreq};
   }
 
@@ -940,11 +1030,19 @@
     });
   }
 
+  function resetLevelMeter(){
+    levelFill.style.width = "0%";
+  }
+
   function updateUI(detected){
+    if (detected) updateLevelMeter(detected.rms || 0);
+
     if (!detected || detected.freq <= 0 || detected.clarity < CLARITY_THRESHOLD ||
         detected.freq < MIN_DETECT_FREQ || detected.freq > MAX_DETECT_FREQ){
       silenceCount++;
-      statusPillEl.textContent = "소리 감지 중...";
+      statusPillEl.textContent = (detected && detected.rms > SILENCE_RMS)
+        ? "소리는 들리는데 음정이 불확실해요"
+        : "소리 감지 중...";
       statusPillEl.className = "status-pill";
       if (silenceCount > 4){
         freqHistory = [];
@@ -1062,6 +1160,7 @@
     fabIcon.textContent = "⏹";
     fabLabel.textContent = "탭해서 정지";
     startBtn.classList.add("listening");
+    levelRow.style.visibility = "visible";
 
     requestWakeLock();
   }
@@ -1080,6 +1179,8 @@
     freqHistory = [];
     silenceCount = 0;
     resetDisplay();
+    resetLevelMeter();
+    levelRow.style.visibility = "hidden";
     releaseWakeLock();
   }
 
