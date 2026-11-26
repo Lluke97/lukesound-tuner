@@ -659,7 +659,7 @@
 
     <div class="center-readout">
       <div>
-        <span class="note-name" id="noteName">—</span><span class="octave-tag" id="octaveTag"></span>
+        <span class="note-name" id="noteName"></span><span class="octave-tag" id="octaveTag"></span>
       </div>
       <div class="freq" id="freqText">0.0 Hz</div>
       <div class="cents-row">
@@ -1028,7 +1028,10 @@
   }
 
   function resetDisplay(){
-    noteNameEl.textContent = "—";
+    // Idle placeholder: intentionally blank, not a dash — a wide "—" at
+    // 64px sits right across the needle's shaft and reads as a cut/broken
+    // needle rather than a placeholder.
+    noteNameEl.textContent = "";
     noteNameEl.className = "note-name";
     octaveTagEl.textContent = "";
     freqTextEl.textContent = "0.0 Hz";
