@@ -39,6 +39,7 @@
   body{
     margin:0;
     min-height:100vh;
+    min-height:100dvh;
     background:
       radial-gradient(1200px 600px at 50% -10%, #1a2130 0%, transparent 60%),
       radial-gradient(800px 500px at 90% 110%, #13201c 0%, transparent 55%),
@@ -49,14 +50,16 @@
     display:flex;
     flex-direction:column;
     align-items:center;
-    /* Generous, explicit safe-area padding: standalone/home-screen mode on
-       iOS (status-bar-style: black-translucent) draws the page under the
-       status bar and home indicator, so this has to clear both — a bare
-       max(18px, env(...)) left the header hugging the status bar. */
-    padding-top:calc(env(safe-area-inset-top) + 18px);
+    /* Center the whole layout in the viewport rather than pinning it to the
+       top — on tall phones that left a dead, unbalanced gap below the hint
+       text. Explicit safe-area padding still reserves room for the status
+       bar / home indicator in standalone mode, it just no longer forces
+       everything to hug the top. */
+    justify-content:center;
+    padding-top:calc(env(safe-area-inset-top) + 14px);
     padding-left:16px;
     padding-right:16px;
-    padding-bottom:calc(env(safe-area-inset-bottom) + 40px);
+    padding-bottom:calc(env(safe-area-inset-bottom) + 18px);
     overflow-x:hidden;
     overscroll-behavior-y:contain;
     -webkit-overflow-scrolling:touch;
@@ -82,7 +85,7 @@
     display:flex;
     align-items:center;
     justify-content:space-between;
-    margin-bottom:14px;
+    margin-bottom:12px;
   }
   .brand{
     display:flex;
@@ -133,7 +136,7 @@
     border:1px solid var(--line);
     border-radius:16px;
     padding:4px;
-    margin-bottom:12px;
+    margin-bottom:10px;
   }
   .seg-highlight{
     position:absolute;
@@ -168,7 +171,7 @@
     gap:8px;
     overflow-x:auto;
     padding-bottom:2px;
-    margin-bottom:12px;
+    margin-bottom:10px;
     scrollbar-width:none;
   }
   .chip-row::-webkit-scrollbar{display:none;}
@@ -198,7 +201,7 @@
     background:linear-gradient(180deg, var(--panel) 0%, var(--bg-1) 100%);
     border:1px solid var(--line);
     border-radius:28px;
-    padding:18px 20px 18px;
+    padding:16px 18px 16px;
     box-shadow:0 20px 50px rgba(0,0,0,.45);
     position:relative;
     overflow:hidden;
@@ -266,7 +269,7 @@
   /* ---------- Dial ---------- */
   .dial-wrap{
     position:relative;
-    margin:6px auto 2px;
+    margin:4px auto 0;
     width:100%;
     max-width:320px;
   }
@@ -355,7 +358,7 @@
     display:grid;
     grid-template-columns:repeat(6,1fr);
     gap:8px;
-    margin:14px 0 16px;
+    margin:10px 0 14px;
   }
   .strings.bass{grid-template-columns:repeat(4,1fr);}
   .string-btn{
@@ -574,11 +577,11 @@
 
   .hint{
     text-align:center;
-    font-size:11.5px;
+    font-size:11px;
     color:var(--muted-2);
-    margin-top:16px;
-    line-height:1.6;
-    max-width:430px;
+    margin-top:14px;
+    line-height:1.55;
+    max-width:380px;
     font-weight:500;
   }
 </style>
