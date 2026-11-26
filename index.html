@@ -402,108 +402,162 @@
     const A4 = refA4;
     const noteNum = 12 * (Math.log(freq / A4) / Math.log(2)) + 69; // MIDI number
     const rounded = Math.round(noteNum);
-    const cents = Math.floor((noteNum - rounded) * 100);
+    const cents = Math.round((noteNum - rounded) * 100);
     const name = NOTE_NAMES[((rounded % 12) + 12) % 12];
     const octave = Math.floor(rounded / 12) - 1;
     return {name, octave, cents, midi: rounded};
   }
 
-  function midiToFreq(midi){
-    return refA4 * Math.pow(2, (midi - 69) / 12);
-  }
+  // ---- Pitch detection (autocorrelation, limited to the musically useful
+  // lag range, with a Hann window and parabolic interpolation). Limiting the
+  // lag range both speeds things up a lot and avoids locking onto spurious
+  // very-low-frequency correlation peaks. ----
+  const MIN_DETECT_FREQ = 25;   // below bass low E (41.2 Hz), with margin
+  const MAX_DETECT_FREQ = 500;  // above guitar high E (329.6 Hz), with margin
+  const SILENCE_RMS = 0.004;
+  const CLARITY_THRESHOLD = 0.45; // normalized autocorrelation peak strength
 
-  // Autocorrelation pitch detection (ACF2+)
   function autoCorrelate(buf, sampleRate){
     const SIZE = buf.length;
+
     let rms = 0;
-    for (let i = 0; i < SIZE; i++){
-      const val = buf[i];
-      rms += val * val;
-    }
+    for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / SIZE);
-    if (rms < 0.01) return -1; // too quiet
+    if (rms < SILENCE_RMS) return {freq: -1, clarity: 0};
 
-    let r1 = 0, r2 = SIZE - 1, thres = 0.2;
-    for (let i = 0; i < SIZE / 2; i++){
-      if (Math.abs(buf[i]) < thres) { r1 = i; break; }
-    }
-    for (let i = 1; i < SIZE / 2; i++){
-      if (Math.abs(buf[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+    // Hann window to reduce edge artifacts in the correlation
+    const windowed = new Float32Array(SIZE);
+    for (let i = 0; i < SIZE; i++){
+      const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (SIZE - 1));
+      windowed[i] = buf[i] * w;
     }
 
-    const trimmed = buf.slice(r1, r2);
-    const newSize = trimmed.length;
-    const c = new Array(newSize).fill(0);
-    for (let i = 0; i < newSize; i++){
-      for (let j = 0; j < newSize - i; j++){
-        c[i] += trimmed[j] * trimmed[j + i];
+    const maxLag = Math.min(SIZE - 2, Math.floor(sampleRate / MIN_DETECT_FREQ));
+    const minLag = Math.max(2, Math.floor(sampleRate / MAX_DETECT_FREQ));
+    if (maxLag <= minLag + 2) return {freq: -1, clarity: 0};
+
+    let c0 = 0;
+    for (let i = 0; i < SIZE; i++) c0 += windowed[i] * windowed[i];
+    if (c0 <= 0) return {freq: -1, clarity: 0};
+
+    const c = new Float32Array(maxLag + 1);
+    for (let lag = minLag; lag <= maxLag; lag++){
+      let sum = 0;
+      const n = SIZE - lag;
+      for (let i = 0; i < n; i++){
+        sum += windowed[i] * windowed[i + lag];
+      }
+      c[lag] = sum;
+    }
+
+    // first local peak in range (periodicity peak, not just global max,
+    // so we lock onto the fundamental's own period rather than a longer one)
+    let bestLag = -1, bestVal = -Infinity;
+    for (let lag = minLag + 1; lag < maxLag; lag++){
+      if (c[lag] > c[lag - 1] && c[lag] >= c[lag + 1] && c[lag] > bestVal){
+        bestVal = c[lag];
+        bestLag = lag;
       }
     }
-
-    let d = 0;
-    while (d < newSize - 1 && c[d] > c[d + 1]) d++;
-
-    let maxVal = -1, maxPos = -1;
-    for (let i = d; i < newSize; i++){
-      if (c[i] > maxVal){
-        maxVal = c[i];
-        maxPos = i;
+    if (bestLag === -1){
+      for (let lag = minLag; lag <= maxLag; lag++){
+        if (c[lag] > bestVal){ bestVal = c[lag]; bestLag = lag; }
       }
     }
-    let T0 = maxPos;
+    if (bestLag <= minLag) return {freq: -1, clarity: 0};
 
-    if (T0 <= 0) return -1;
+    // parabolic interpolation around the peak for sub-sample precision
+    const x1 = c[bestLag - 1] || 0, x2 = c[bestLag], x3 = c[bestLag + 1] || 0;
+    const denom = (x1 - 2 * x2 + x3);
+    let shift = 0;
+    if (denom !== 0) shift = 0.5 * (x1 - x3) / denom;
+    const refinedLag = bestLag + Math.max(-0.5, Math.min(0.5, shift));
 
-    const x1 = c[T0 - 1] || 0, x2 = c[T0] || 0, x3 = c[T0 + 1] || 0;
-    const a = (x1 + x3 - 2 * x2) / 2;
-    const b = (x3 - x1) / 2;
-    if (a) T0 = T0 - b / (2 * a);
+    const meanLagEnergy = bestVal / (SIZE - bestLag);
+    const meanZeroEnergy = c0 / SIZE;
+    const clarity = meanZeroEnergy > 0 ? meanLagEnergy / meanZeroEnergy : 0;
 
-    return sampleRate / T0;
+    return {freq: sampleRate / refinedLag, clarity};
   }
 
+  // Finds the nearest string, correcting common octave errors (the
+  // autocorrelator locking onto a harmonic instead of the fundamental) by
+  // also testing the detected frequency doubled/halved/tripled against
+  // every string before picking the closest match.
   function nearestStringTarget(freq){
-    if (mode === "chromatic") return null;
+    if (mode === "chromatic" || !freq) return null;
     const strings = currentStrings();
-    let best = null, bestDiff = Infinity;
+    const candidates = [freq, freq * 2, freq / 2, freq * 3, freq / 3, freq * 4, freq / 4];
+    let best = null, bestFreq = freq, bestCents = Infinity;
     strings.forEach(s => {
-      const diff = Math.abs(freq - s.freq);
-      if (diff < bestDiff){
-        bestDiff = diff;
-        best = s;
-      }
+      candidates.forEach(f => {
+        if (f <= 0) return;
+        const cents = Math.abs(1200 * Math.log2(f / s.freq));
+        if (cents < bestCents){
+          bestCents = cents;
+          best = s;
+          bestFreq = f;
+        }
+      });
     });
-    return best;
+    if (!best || bestCents > 600) return null; // more than a tritone off: don't force a match
+    return {target: best, correctedFreq: bestFreq};
   }
 
-  function updateUI(freq){
-    if (!freq || freq < 20 || freq > 1500){
-      noteNameEl.textContent = "—";
-      freqTextEl.textContent = "0.0 Hz";
-      centsLabelEl.textContent = "센트: 0";
-      needleEl.setAttribute("transform", "rotate(0)");
+  // Small rolling history so the needle doesn't flicker between frames;
+  // we display the median of the last few readings instead of the raw one.
+  const HISTORY_SIZE = 6;
+  let freqHistory = [];
+  let silenceCount = 0;
+
+  function medianOf(arr){
+    const sorted = [...arr].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+
+  function resetDisplay(){
+    noteNameEl.textContent = "—";
+    freqTextEl.textContent = "0.0 Hz";
+    centsLabelEl.textContent = "센트: 0";
+    needleEl.setAttribute("transform", "rotate(0)");
+    document.querySelectorAll(".string-btn").forEach(el => {
+      el.classList.remove("target", "in-tune");
+    });
+  }
+
+  function updateUI(detected){
+    if (!detected || detected.freq <= 0 || detected.clarity < CLARITY_THRESHOLD ||
+        detected.freq < MIN_DETECT_FREQ || detected.freq > MAX_DETECT_FREQ){
+      silenceCount++;
       statusPillEl.textContent = "소리 감지 중...";
-      document.querySelectorAll(".string-btn").forEach(el => {
-        el.classList.remove("target", "in-tune");
-      });
+      // only clear the display after a few consecutive silent frames, so a
+      // single dropped frame doesn't make the needle jump back to zero
+      if (silenceCount > 4){
+        freqHistory = [];
+        resetDisplay();
+      }
       return;
     }
+    silenceCount = 0;
 
-    const info = freqToNote(freq);
+    const match = nearestStringTarget(detected.freq);
+    const freq = match ? match.correctedFreq : detected.freq;
+
+    freqHistory.push(freq);
+    if (freqHistory.length > HISTORY_SIZE) freqHistory.shift();
+    const smoothedFreq = medianOf(freqHistory);
+
+    const info = freqToNote(smoothedFreq);
     noteNameEl.textContent = info.name;
-    freqTextEl.textContent = freq.toFixed(1) + " Hz";
+    freqTextEl.textContent = smoothedFreq.toFixed(1) + " Hz";
 
     let cents = info.cents;
-    let targetName = info.name + info.octave;
-
-    const target = nearestStringTarget(freq);
-    if (target){
-      // compute cents relative to the target string's exact note
-      const targetMidi = 12 * (Math.log(target.freq / refA4) / Math.log(2)) + 69;
+    if (match){
+      const targetMidi = 12 * (Math.log(match.target.freq / refA4) / Math.log(2)) + 69;
       const roundedTargetMidi = Math.round(targetMidi);
-      const currentMidi = 12 * (Math.log(freq / refA4) / Math.log(2)) + 69;
+      const currentMidi = 12 * (Math.log(smoothedFreq / refA4) / Math.log(2)) + 69;
       cents = Math.round((currentMidi - roundedTargetMidi) * 100);
-      targetName = target.name;
     }
 
     cents = Math.max(-50, Math.min(50, cents));
@@ -512,7 +566,7 @@
     const angle = (cents / 50) * 45; // -45deg..+45deg
     needleEl.setAttribute("transform", "rotate(" + angle + ")");
 
-    const inTune = Math.abs(cents) <= 4;
+    const inTune = Math.abs(cents) <= 5;
     if (inTune){
       noteNameEl.style.color = "var(--accent)";
       statusPillEl.textContent = "✅ 튜닝 완료";
@@ -526,7 +580,7 @@
 
     document.querySelectorAll(".string-btn").forEach(el => {
       el.classList.remove("target", "in-tune");
-      if (target && el.dataset.name === target.name){
+      if (match && el.dataset.name === match.target.name){
         el.classList.add("target");
         if (inTune) el.classList.add("in-tune");
       }
@@ -558,20 +612,36 @@
     }
 
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // iOS Safari sometimes creates the context suspended even inside a
+    // user-gesture handler; make sure it's actually running.
+    if (audioCtx.state === "suspended"){
+      try { await audioCtx.resume(); } catch (e) { /* ignore */ }
+    }
+
     const source = audioCtx.createMediaStreamSource(mediaStream);
     analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 2048;
+    // Large enough window to contain several full periods of a low bass E
+    // (41.2 Hz) at typical mobile sample rates (44.1/48 kHz), which a 2048
+    // window is too short for and leads to unstable/wrong readings.
+    analyser.fftSize = 4096;
     source.connect(analyser);
 
     const buf = new Float32Array(analyser.fftSize);
+    freqHistory = [];
+    silenceCount = 0;
 
-    function loop(){
-      analyser.getFloatTimeDomainData(buf);
-      const freq = autoCorrelate(buf, audioCtx.sampleRate);
-      updateUI(freq > 0 ? freq : null);
+    let lastAnalysisTime = 0;
+    const ANALYSIS_INTERVAL_MS = 60; // ~16 analyses/sec is plenty and keeps CPU low
+
+    function loop(ts){
       rafId = requestAnimationFrame(loop);
+      if (ts - lastAnalysisTime < ANALYSIS_INTERVAL_MS) return;
+      lastAnalysisTime = ts;
+      analyser.getFloatTimeDomainData(buf);
+      const detected = autoCorrelate(buf, audioCtx.sampleRate);
+      updateUI(detected);
     }
-    loop();
+    rafId = requestAnimationFrame(loop);
 
     listening = true;
     startBtn.textContent = "⏹ 정지";
@@ -590,12 +660,9 @@
     startBtn.textContent = "🎤 마이크 시작";
     startBtn.classList.remove("listening");
     statusPillEl.textContent = "대기 중";
-    noteNameEl.textContent = "—";
-    freqTextEl.textContent = "0.0 Hz";
-    needleEl.setAttribute("transform", "rotate(0)");
-    document.querySelectorAll(".string-btn").forEach(el => {
-      el.classList.remove("target", "in-tune");
-    });
+    freqHistory = [];
+    silenceCount = 0;
+    resetDisplay();
   }
 
   startBtn.addEventListener("click", () => {
