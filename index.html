@@ -788,7 +788,7 @@
 
   // Visual input-level meter so it's obvious the mic is actually picking up
   // sound, independent of whether a clean pitch has locked in yet.
-  const LEVEL_METER_MAX_RMS = 0.12; // rms that fills the bar to 100%
+  const LEVEL_METER_MAX_RMS = 0.05; // rms that fills the bar to 100% (lower = more sensitive-looking)
   function updateLevelMeter(rms){
     const pct = Math.max(0, Math.min(100, (rms / LEVEL_METER_MAX_RMS) * 100));
     levelFill.style.width = pct + "%";
@@ -910,16 +910,13 @@
   // ---- Pitch detection ----
   const MIN_DETECT_FREQ = 25;
   const MAX_DETECT_FREQ = 500;
-  // Lowered from the first pass: 0.004/0.45 made the app feel "dead" for a
-  // normal phone mic a little distance from the instrument — it rarely
-  // crossed the bar, so it looked like the mic wasn't working. These still
-  // reject near-silence/pure noise but respond to a normal pluck.
-  const SILENCE_RMS = 0.0015;
-  // Raised a bit from the previous pass (0.32): that let through enough
-  // ambiguous/noisy frames that the needle jittered between readings. This
-  // is still looser than the original 0.45, combined with the outlier
-  // rejection and needle easing below for a steady but still-responsive read.
-  const CLARITY_THRESHOLD = 0.40;
+  // Tuned to match how sensitive dedicated tuner apps (GuitarTuna, Fender
+  // Tune, etc.) feel: they pick up a quiet pluck from a phone mic held a
+  // little away from the instrument almost instantly. The outlier rejection
+  // and needle easing below are what keep this from being jittery at this
+  // sensitivity — without them, this level would make the needle flail.
+  const SILENCE_RMS = 0.0006;
+  const CLARITY_THRESHOLD = 0.28;
 
   function autoCorrelate(buf, sampleRate){
     const SIZE = buf.length;
@@ -1075,7 +1072,7 @@
     if (freqHistory.length >= 3){
       const runningMedian = medianOf(freqHistory);
       const diffCents = Math.abs(1200 * Math.log2(freq / runningMedian));
-      if (diffCents > 150) {
+      if (diffCents > 120) {
         // ignore this one frame; keep using the existing history
       } else {
         freqHistory.push(freq);
