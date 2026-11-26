@@ -34,7 +34,13 @@
     font-size:16px;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{height:100%;}
+  /* NOT height:100% on body: with flex-direction:column, a fixed-height
+     flex container shrinks its items (the card, specifically) whenever
+     content is taller than whatever the browser's visible viewport
+     happens to be at that moment (e.g. Safari with its toolbar expanded) —
+     and .card's overflow:hidden then chops the mic button off mid-circle
+     instead of the page simply scrolling. min-height below is enough. */
+  html{height:100%;}
   html{-webkit-text-size-adjust:100%; text-size-adjust:100%;}
   body{
     margin:0;
