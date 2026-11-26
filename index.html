@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>기타 / 베이스 / 일렉기타 튜너</title>
+<style>
+  :root{
+    --bg:#0f1115;
+    --panel:#1a1d24;
+    --accent:#3ddc97;
+    --accent2:#ff5c5c;
+    --text:#f5f6fa;
+    --muted:#8a8f9c;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    min-height:100vh;
+    background:radial-gradient(circle at 50% 0%, #1e2230, var(--bg));
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:24px 16px 60px;
+  }
+  h1{
+    font-size:20px;
+    font-weight:600;
+    margin:8px 0 20px;
+    letter-spacing:0.5px;
+  }
+  .tabs{
+    display:flex;
+    gap:8px;
+    background:var(--panel);
+    padding:6px;
+    border-radius:14px;
+    margin-bottom:22px;
+  }
+  .tab{
+    padding:10px 18px;
+    border-radius:10px;
+    font-size:14px;
+    font-weight:600;
+    color:var(--muted);
+    cursor:pointer;
+    user-select:none;
+    transition:all .2s;
+  }
+  .tab.active{
+    background:var(--accent);
+    color:#06291c;
+  }
+  .panel{
+    width:100%;
+    max-width:420px;
+    background:var(--panel);
+    border-radius:24px;
+    padding:28px 24px 24px;
+    box-shadow:0 10px 40px rgba(0,0,0,.4);
+  }
+  .note-display{
+    text-align:center;
+    margin-bottom:18px;
+  }
+  .note-name{
+    font-size:72px;
+    font-weight:700;
+    line-height:1;
+    transition:color .15s;
+  }
+  .freq{
+    font-size:14px;
+    color:var(--muted);
+    margin-top:6px;
+  }
+  .meter-wrap{
+    position:relative;
+    height:110px;
+    margin:10px 0 24px;
+  }
+  svg{overflow:visible;}
+  .needle{
+    transform-origin:150px 140px;
+    transition:transform .08s linear;
+  }
+  .tick-label{
+    font-size:11px;
+    fill:var(--muted);
+  }
+  .cents-label{
+    text-align:center;
+    font-size:13px;
+    color:var(--muted);
+    margin-top:-10px;
+  }
+  .strings{
+    display:grid;
+    grid-template-columns:repeat(6,1fr);
+    gap:8px;
+    margin-bottom:22px;
+  }
+  .strings.bass{
+    grid-template-columns:repeat(4,1fr);
+  }
+  .string-btn{
+    background:#242831;
+    border:2px solid transparent;
+    border-radius:12px;
+    padding:12px 0;
+    text-align:center;
+    color:var(--text);
+    font-weight:700;
+    font-size:16px;
+    cursor:pointer;
+    transition:all .15s;
+  }
+  .string-btn .octave{
+    display:block;
+    font-size:10px;
+    color:var(--muted);
+    font-weight:500;
+    margin-top:2px;
+  }
+  .string-btn.target{
+    border-color:var(--accent);
+  }
+  .string-btn.in-tune{
+    background:var(--accent);
+    color:#06291c;
+  }
+  .status-row{
+    display:flex;
+    justify-content:center;
+    gap:10px;
+    margin-bottom:18px;
+  }
+  .status-pill{
+    font-size:12px;
+    padding:4px 10px;
+    border-radius:999px;
+    background:#242831;
+    color:var(--muted);
+  }
+  .start-btn{
+    width:100%;
+    padding:16px;
+    border:none;
+    border-radius:14px;
+    background:var(--accent);
+    color:#06291c;
+    font-size:16px;
+    font-weight:700;
+    cursor:pointer;
+    transition:transform .1s, background .2s;
+  }
+  .start-btn:active{transform:scale(0.98);}
+  .start-btn.listening{
+    background:var(--accent2);
+    color:#2b0000;
+  }
+  .hint{
+    text-align:center;
+    font-size:12px;
+    color:var(--muted);
+    margin-top:14px;
+    line-height:1.5;
+  }
+  .reference-row{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:10px;
+    margin:4px 0 20px;
+    font-size:13px;
+    color:var(--muted);
+  }
+  .reference-row input{
+    width:70px;
+    padding:6px 8px;
+    border-radius:8px;
+    border:1px solid #333a46;
+    background:#11141a;
+    color:var(--text);
+    text-align:center;
+    font-size:13px;
+  }
+  .tuning-select-wrap{
+    margin-bottom:18px;
+  }
+  .tuning-select-wrap select{
+    width:100%;
+    padding:10px 12px;
+    border-radius:10px;
+    border:1px solid #333a46;
+    background:#11141a;
+    color:var(--text);
+    font-size:13px;
+    font-weight:600;
+  }
+  .error-box{
+    background:#3a1f22;
+    color:#ffb4b4;
+    border-radius:10px;
+    padding:10px 14px;
+    font-size:13px;
+    text-align:center;
+    margin-bottom:16px;
+    display:none;
+  }
+</style>
+</head>
+<body>
+
+<h1>🎸 기타 / 베이스 / 일렉기타 튜너</h1>
+
+<div class="tabs">
+  <div class="tab active" data-mode="guitar">기타</div>
+  <div class="tab" data-mode="electric">일렉기타</div>
+  <div class="tab" data-mode="bass">베이스</div>
+  <div class="tab" data-mode="chromatic">크로매틱</div>
+</div>
+
+<div class="panel">
+
+  <div class="error-box" id="errorBox"></div>
+
+  <div class="tuning-select-wrap" id="tuningSelectWrap">
+    <select id="tuningSelect">
+      <option value="standard">스탠다드 (E A D G B E)</option>
+      <option value="dropD">드롭 D (D A D G B E)</option>
+      <option value="halfStepDown">하프스텝 다운 (D# G# C# F# A# D#)</option>
+      <option value="fullStepDown">풀스텝 다운 (D G C F A D)</option>
+    </select>
+  </div>
+
+  <div class="note-display">
+    <div class="note-name" id="noteName">—</div>
+    <div class="freq" id="freqText">0.0 Hz</div>
+  </div>
+
+  <div class="meter-wrap">
+    <svg viewBox="0 0 300 150" width="100%" height="110">
+      <!-- arc background -->
+      <path d="M 30 140 A 120 120 0 0 1 270 140" fill="none" stroke="#2a2f3a" stroke-width="10" stroke-linecap="round"/>
+      <!-- colored center zone -->
+      <path d="M 130 24.5 A 120 120 0 0 1 170 24.5" fill="none" stroke="var(--accent)" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
+      <!-- tick labels -->
+      <text x="30" y="150" class="tick-label" text-anchor="middle">-50</text>
+      <text x="150" y="14" class="tick-label" text-anchor="middle">0</text>
+      <text x="270" y="150" class="tick-label" text-anchor="middle">+50</text>
+      <!-- needle -->
+      <g class="needle" id="needle">
+        <line x1="150" y1="140" x2="150" y2="34" stroke="var(--accent2)" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="150" cy="140" r="7" fill="var(--accent2)"/>
+      </g>
+    </svg>
+  </div>
+  <div class="cents-label" id="centsLabel">센트: 0</div>
+
+  <div class="status-row">
+    <div class="status-pill" id="statusPill">대기 중</div>
+  </div>
+
+  <div class="strings" id="stringsRow"></div>
+
+  <button class="start-btn" id="startBtn">🎤 마이크 시작</button>
+
+  <div class="reference-row">
+    <span>기준 A4 =</span>
+    <input type="number" id="refFreq" value="440" min="400" max="480" step="1">
+    <span>Hz</span>
+  </div>
+
+  <div class="hint">
+    악기를 가까이 대고 한 줄씩 튕겨주세요.<br>
+    바늘이 가운데(0)에 오고 초록색이 되면 튜닝 완료!<br>
+    <span style="opacity:.7">※ 브라우저 마이크 권한을 허용해야 합니다.</span>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+
+  // 6-string tuning variants, shared by both the acoustic "기타" and "일렉기타" tabs
+  const SIX_STRING_TUNINGS = {
+    standard: [
+      {name:"E2", freq:82.41},
+      {name:"A2", freq:110.00},
+      {name:"D3", freq:146.83},
+      {name:"G3", freq:196.00},
+      {name:"B3", freq:246.94},
+      {name:"E4", freq:329.63}
+    ],
+    dropD: [
+      {name:"D2", freq:73.42},
+      {name:"A2", freq:110.00},
+      {name:"D3", freq:146.83},
+      {name:"G3", freq:196.00},
+      {name:"B3", freq:246.94},
+      {name:"E4", freq:329.63}
+    ],
+    halfStepDown: [
+      {name:"D#2", freq:77.78},
+      {name:"G#2", freq:103.83},
+      {name:"C#3", freq:138.59},
+      {name:"F#3", freq:185.00},
+      {name:"A#3", freq:233.08},
+      {name:"D#4", freq:311.13}
+    ],
+    fullStepDown: [
+      {name:"D2", freq:73.42},
+      {name:"G2", freq:98.00},
+      {name:"C3", freq:130.81},
+      {name:"F3", freq:174.61},
+      {name:"A3", freq:220.00},
+      {name:"D4", freq:293.66}
+    ]
+  };
+
+  const TUNINGS = {
+    bass: [
+      {name:"E1", freq:41.20},
+      {name:"A1", freq:55.00},
+      {name:"D2", freq:73.42},
+      {name:"G2", freq:98.00}
+    ]
+  };
+
+  const SIX_STRING_MODES = ["guitar", "electric"];
+
+  let mode = "guitar";
+  let tuningVariant = "standard";
+  let refA4 = 440;
+  let audioCtx, analyser, mediaStream, rafId;
+  let listening = false;
+
+  const noteNameEl = document.getElementById("noteName");
+  const freqTextEl = document.getElementById("freqText");
+  const needleEl = document.getElementById("needle");
+  const centsLabelEl = document.getElementById("centsLabel");
+  const statusPillEl = document.getElementById("statusPill");
+  const stringsRowEl = document.getElementById("stringsRow");
+  const startBtn = document.getElementById("startBtn");
+  const refFreqInput = document.getElementById("refFreq");
+  const errorBox = document.getElementById("errorBox");
+  const tuningSelectWrap = document.getElementById("tuningSelectWrap");
+  const tuningSelect = document.getElementById("tuningSelect");
+
+  refFreqInput.addEventListener("input", () => {
+    const v = parseFloat(refFreqInput.value);
+    if (!isNaN(v) && v > 300 && v < 500) refA4 = v;
+  });
+
+  tuningSelect.addEventListener("change", () => {
+    tuningVariant = tuningSelect.value;
+    renderStrings();
+  });
+
+  function currentStrings(){
+    if (mode === "bass") return TUNINGS.bass;
+    if (SIX_STRING_MODES.includes(mode)) return SIX_STRING_TUNINGS[tuningVariant];
+    return null;
+  }
+
+  document.querySelectorAll(".tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      mode = tab.dataset.mode;
+      tuningSelectWrap.style.display = SIX_STRING_MODES.includes(mode) ? "block" : "none";
+      renderStrings();
+    });
+  });
+
+  function renderStrings(){
+    if (mode === "chromatic"){
+      stringsRowEl.style.display = "none";
+      return;
+    }
+    stringsRowEl.style.display = "grid";
+    stringsRowEl.className = "strings" + (mode === "bass" ? " bass" : "");
+    const strings = currentStrings();
+    stringsRowEl.innerHTML = "";
+    strings.forEach(s => {
+      const div = document.createElement("div");
+      div.className = "string-btn";
+      div.dataset.name = s.name;
+      const letter = s.name.slice(0, -1);
+      const octave = s.name.slice(-1);
+      div.innerHTML = letter + '<span class="octave">' + s.name + '</span>';
+      stringsRowEl.appendChild(div);
+    });
+  }
+  renderStrings();
+
+  function freqToNote(freq){
+    const A4 = refA4;
+    const noteNum = 12 * (Math.log(freq / A4) / Math.log(2)) + 69; // MIDI number
+    const rounded = Math.round(noteNum);
+    const cents = Math.floor((noteNum - rounded) * 100);
+    const name = NOTE_NAMES[((rounded % 12) + 12) % 12];
+    const octave = Math.floor(rounded / 12) - 1;
+    return {name, octave, cents, midi: rounded};
+  }
+
+  function midiToFreq(midi){
+    return refA4 * Math.pow(2, (midi - 69) / 12);
+  }
+
+  // Autocorrelation pitch detection (ACF2+)
+  function autoCorrelate(buf, sampleRate){
+    const SIZE = buf.length;
+    let rms = 0;
+    for (let i = 0; i < SIZE; i++){
+      const val = buf[i];
+      rms += val * val;
+    }
+    rms = Math.sqrt(rms / SIZE);
+    if (rms < 0.01) return -1; // too quiet
+
+    let r1 = 0, r2 = SIZE - 1, thres = 0.2;
+    for (let i = 0; i < SIZE / 2; i++){
+      if (Math.abs(buf[i]) < thres) { r1 = i; break; }
+    }
+    for (let i = 1; i < SIZE / 2; i++){
+      if (Math.abs(buf[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+    }
+
+    const trimmed = buf.slice(r1, r2);
+    const newSize = trimmed.length;
+    const c = new Array(newSize).fill(0);
+    for (let i = 0; i < newSize; i++){
+      for (let j = 0; j < newSize - i; j++){
+        c[i] += trimmed[j] * trimmed[j + i];
+      }
+    }
+
+    let d = 0;
+    while (d < newSize - 1 && c[d] > c[d + 1]) d++;
+
+    let maxVal = -1, maxPos = -1;
+    for (let i = d; i < newSize; i++){
+      if (c[i] > maxVal){
+        maxVal = c[i];
+        maxPos = i;
+      }
+    }
+    let T0 = maxPos;
+
+    if (T0 <= 0) return -1;
+
+    const x1 = c[T0 - 1] || 0, x2 = c[T0] || 0, x3 = c[T0 + 1] || 0;
+    const a = (x1 + x3 - 2 * x2) / 2;
+    const b = (x3 - x1) / 2;
+    if (a) T0 = T0 - b / (2 * a);
+
+    return sampleRate / T0;
+  }
+
+  function nearestStringTarget(freq){
+    if (mode === "chromatic") return null;
+    const strings = currentStrings();
+    let best = null, bestDiff = Infinity;
+    strings.forEach(s => {
+      const diff = Math.abs(freq - s.freq);
+      if (diff < bestDiff){
+        bestDiff = diff;
+        best = s;
+      }
+    });
+    return best;
+  }
+
+  function updateUI(freq){
+    if (!freq || freq < 20 || freq > 1500){
+      noteNameEl.textContent = "—";
+      freqTextEl.textContent = "0.0 Hz";
+      centsLabelEl.textContent = "센트: 0";
+      needleEl.setAttribute("transform", "rotate(0)");
+      statusPillEl.textContent = "소리 감지 중...";
+      document.querySelectorAll(".string-btn").forEach(el => {
+        el.classList.remove("target", "in-tune");
+      });
+      return;
+    }
+
+    const info = freqToNote(freq);
+    noteNameEl.textContent = info.name;
+    freqTextEl.textContent = freq.toFixed(1) + " Hz";
+
+    let cents = info.cents;
+    let targetName = info.name + info.octave;
+
+    const target = nearestStringTarget(freq);
+    if (target){
+      // compute cents relative to the target string's exact note
+      const targetMidi = 12 * (Math.log(target.freq / refA4) / Math.log(2)) + 69;
+      const roundedTargetMidi = Math.round(targetMidi);
+      const currentMidi = 12 * (Math.log(freq / refA4) / Math.log(2)) + 69;
+      cents = Math.round((currentMidi - roundedTargetMidi) * 100);
+      targetName = target.name;
+    }
+
+    cents = Math.max(-50, Math.min(50, cents));
+    centsLabelEl.textContent = "센트: " + (cents > 0 ? "+" : "") + cents;
+
+    const angle = (cents / 50) * 45; // -45deg..+45deg
+    needleEl.setAttribute("transform", "rotate(" + angle + ")");
+
+    const inTune = Math.abs(cents) <= 4;
+    if (inTune){
+      noteNameEl.style.color = "var(--accent)";
+      statusPillEl.textContent = "✅ 튜닝 완료";
+    } else if (cents < 0){
+      noteNameEl.style.color = "var(--accent2)";
+      statusPillEl.textContent = "⬆ 조금 더 올리세요 (낮음)";
+    } else {
+      noteNameEl.style.color = "var(--accent2)";
+      statusPillEl.textContent = "⬇ 조금 더 내리세요 (높음)";
+    }
+
+    document.querySelectorAll(".string-btn").forEach(el => {
+      el.classList.remove("target", "in-tune");
+      if (target && el.dataset.name === target.name){
+        el.classList.add("target");
+        if (inTune) el.classList.add("in-tune");
+      }
+    });
+  }
+
+  function showError(msg){
+    errorBox.style.display = "block";
+    errorBox.textContent = msg;
+  }
+  function clearError(){
+    errorBox.style.display = "none";
+    errorBox.textContent = "";
+  }
+
+  async function startListening(){
+    clearError();
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
+        }
+      });
+    } catch (err){
+      showError("마이크 접근이 거부되었거나 사용할 수 없습니다. 브라우저 권한 설정을 확인해주세요.");
+      return;
+    }
+
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioCtx.createMediaStreamSource(mediaStream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+
+    const buf = new Float32Array(analyser.fftSize);
+
+    function loop(){
+      analyser.getFloatTimeDomainData(buf);
+      const freq = autoCorrelate(buf, audioCtx.sampleRate);
+      updateUI(freq > 0 ? freq : null);
+      rafId = requestAnimationFrame(loop);
+    }
+    loop();
+
+    listening = true;
+    startBtn.textContent = "⏹ 정지";
+    startBtn.classList.add("listening");
+  }
+
+  function stopListening(){
+    if (rafId) cancelAnimationFrame(rafId);
+    if (mediaStream){
+      mediaStream.getTracks().forEach(t => t.stop());
+    }
+    if (audioCtx){
+      audioCtx.close();
+    }
+    listening = false;
+    startBtn.textContent = "🎤 마이크 시작";
+    startBtn.classList.remove("listening");
+    statusPillEl.textContent = "대기 중";
+    noteNameEl.textContent = "—";
+    freqTextEl.textContent = "0.0 Hz";
+    needleEl.setAttribute("transform", "rotate(0)");
+    document.querySelectorAll(".string-btn").forEach(el => {
+      el.classList.remove("target", "in-tune");
+    });
+  }
+
+  startBtn.addEventListener("click", () => {
+    if (!listening) startListening();
+    else stopListening();
+  });
+
+})();
+</script>
+
+</body>
+</html>
