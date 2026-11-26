@@ -50,12 +50,12 @@
     display:flex;
     flex-direction:column;
     align-items:center;
-    /* Center the whole layout in the viewport rather than pinning it to the
-       top — on tall phones that left a dead, unbalanced gap below the hint
-       text. Explicit safe-area padding still reserves room for the status
-       bar / home indicator in standalone mode, it just no longer forces
-       everything to hug the top. */
-    justify-content:center;
+    /* Top-aligned, not centered: centering a flex column whose content is
+       taller than the viewport makes the browser overflow it out past the
+       bottom edge (the hint text got clipped off-screen). Top-aligned with
+       normal page scroll is what actually keeps everything reachable on
+       every phone height. */
+    justify-content:flex-start;
     padding-top:calc(env(safe-area-inset-top) + 14px);
     padding-left:16px;
     padding-right:16px;
