@@ -924,8 +924,8 @@
   // little away from the instrument almost instantly. The outlier rejection
   // and needle easing below are what keep this from being jittery at this
   // sensitivity — without them, this level would make the needle flail.
-  const SILENCE_RMS = 0.0006;
-  const CLARITY_THRESHOLD = 0.28;
+  const SILENCE_RMS = 0.00035;
+  const CLARITY_THRESHOLD = 0.20;
 
   function autoCorrelate(buf, sampleRate){
     const SIZE = buf.length;
@@ -1007,7 +1007,7 @@
     return {target: best, correctedFreq: bestFreq};
   }
 
-  const HISTORY_SIZE = 8;
+  const HISTORY_SIZE = 10;
   let freqHistory = [];
   let silenceCount = 0;
 
@@ -1015,7 +1015,7 @@
   // instead of jumping straight to it every ~60ms frame. Snaps instantly
   // when the matched note/string changes so switching strings still feels
   // immediate — only steady-state jitter gets smoothed out.
-  const CENTS_SMOOTHING = 0.22;
+  const CENTS_SMOOTHING = 0.16;
   let displayCents = 0;
   let lastTargetKey = null;
 
@@ -1084,7 +1084,7 @@
     if (freqHistory.length >= 3){
       const runningMedian = medianOf(freqHistory);
       const diffCents = Math.abs(1200 * Math.log2(freq / runningMedian));
-      if (diffCents > 120) {
+      if (diffCents > 90) {
         // ignore this one frame; keep using the existing history
       } else {
         freqHistory.push(freq);
